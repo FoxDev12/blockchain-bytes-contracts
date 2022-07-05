@@ -32,19 +32,6 @@ contract Chef is Ownable, ERC721Pausable {
         return currentSupply;
     }
 
-    function getKind(uint256 tokenId) public view returns (uint256) {
-        return nftkind[tokenId];
-    }
-
-    function _setKind(
-        uint256 tokenId,
-        uint256 kind,
-        uint256 quant
-    ) internal {
-        for (uint256 i = 0; i < quant; i++) {
-            nftkind[tokenId + i] = kind;
-        }
-    }
 
     // NOTE: Will always  work with 10k tokens. Don't rely on it  for any kind of execution though
     function getMyChefs(address who) external view returns (uint256[] memory tokenIds) {
@@ -117,6 +104,10 @@ contract Chef is Ownable, ERC721Pausable {
             }
         }while(minted < qty);
     }
+
+
+
+    // View
     function isTiki(uint tokenId) public pure returns(bool) {
         if(tokenId > 9100) {
             return true;
@@ -125,7 +116,6 @@ contract Chef is Ownable, ERC721Pausable {
     }
 
 
-    //DONE: Randomness model : Upload all tokens to IPFS, when minting, choose a random number and assign it to the newly minted tokenID (non-linear). Problem, how do we know if its a tiki? (Solved, offset for tikis)
 }
 
 

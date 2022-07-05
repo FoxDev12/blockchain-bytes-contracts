@@ -13,7 +13,7 @@ import "./deps/interfaces/IERC20.sol";
 
 
  interface IChef is IERC721 {
-    function getKind(uint256 tokenId) external view returns (uint256);
+    function isTiki(uint256 tokenId) external view returns (bool);
 }
 
 interface IUpgrade is IERC1155 {
@@ -49,9 +49,10 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
     mapping(address => uint256) public walletLimit;     //implicit: x + 20
     mapping(address => uint256) public collFeeReduce;   //implicit: 25% - x treasury, 40% - x total
 
-    uint256 public priceWalletUpgrade = 20 ether;
+    uint256[] public priceWalletUpgrade = [20 ether, 20 ether, 20 ether];
+    uint256[] public walletUpgradeTier = [1, 5, 10];
     uint256 public priceCollectionUpgrade = 2 ether;
-
+    uint256 earlyUnstakeFee;
     uint256 constant cooldown = 1 days;
 
     constructor(
@@ -82,21 +83,24 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
     } 
 
     function setPizza(address _pza) external onlyOwner {
+        // Not confusing at all lol
         pza = IDough(_pza);
     }   
 
     
-    //todo: offer 1, 5, 10
-    function increaseChefLimit() external {
-        uint256 approv = pza.allowance(msg.sender, address(this));
-        require( approv >= priceWalletUpgrade, "Insufficient Allowance");
-        pza.transferFrom(msg.sender, address(this), priceWalletUpgrade);
-        walletLimit[msg.sender] += 1;
+    //todo: offer 1, 5, 10 (DONE)
+    function increaseChefLimit(uint256 tier) external {
+        // Unnecessary checks
+        // uint256 approv = pza.allowance(msg.sender, address(this));
+        // require( approv >= priceWalletUpgrade, "Insufficient Allowance");
+        require(tier < 2, "!tier");
+        pza.transferFrom(msg.sender, address(this), priceWalletUpgrade[tier]);
+        walletLimit[msg.sender] += walletUpgradeTier[tier];
     }
-
+    // todo tiers too?
     function reduceCollectionFee() external {
-        uint256 approv = pza.allowance(msg.sender, address(this));
-        require( approv >= priceCollectionUpgrade, "Insufficient Allowance");
+        // uint256 approv = pza.allowance(msg.sender, address(this));
+        // require( approv >= priceCollectionUpgrade, "Insufficient Allowance");
         pza.transferFrom(msg.sender, address(this), priceCollectionUpgrade);
         collFeeReduce[msg.sender] += 5;
     }
@@ -157,22 +161,22 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
 
 
     function stake(uint256 tokenId) external {
-        require(stakeMap[msg.sender].nrChefs < walletLimit[msg.sender] + 20);
+        require(stakeMap[msg.sender].nrChefs < walletLimit[msg.sender] + 20, "!limit");
         chefs.safeTransferFrom(msg.sender, address(this), tokenId );
         _updateStake(msg.sender);
         StakeInfo storage refUser = stakeMap[msg.sender];
         refUser.nrChefs += 1;
-        refUser.totalRate += chefs.getKind(tokenId) * 1 ether;
-        refUser.slots += chefs.getKind(tokenId);
+        refUser.totalRate += chefs.isTiki(tokenId) ? 2 ether : 1 ether;
+        refUser.slots += chefs.isTiki(tokenId)? 2 : 1;
 
         chefIds[msg.sender].push(tokenId);
         prevOwner[tokenId] = msg.sender;
         unlockTime[tokenId] = type(uint256).max;
     }
-
-    function prepareUnstake(uint256 tokenId) external {
+    // Done : Added unstake w no cooldown
+    function prepareUnstake(uint256 tokenId, bool isCooldown) external {
         require(prevOwner[tokenId] == msg.sender, "Not your token");
-        uint256 deltaslots = chefs.getKind(tokenId);
+        uint256 deltaslots = chefs.isTiki(tokenId) ? 2 : 1;
         _updateStake(msg.sender);
         StakeInfo storage refUser = stakeMap[msg.sender];
         require(
@@ -182,13 +186,33 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
         refUser.nrChefs -= 1;
         refUser.slots -= deltaslots;
         refUser.totalRate -= deltaslots * 1 ether;
-        unlockTime[tokenId] = block.timestamp + cooldown;  
-    }
+        if(isCooldown) {
+        unlockTime[tokenId] = block.timestamp + cooldown;
+        }
+        else{
+            chefs.safeTransferFrom(address(this), msg.sender, tokenId);
+            // Because no burnFrom
+            pza.transferFrom(msg.sender, address(this), earlyUnstakeFee);
+            pza.burn(earlyUnstakeFee);
+            uint256 matchIndex = type(uint256).max;
+            uint256 lenny = chefIds[msg.sender].length;
+            for(uint256 index = 0; index < lenny; index++) {
+                if (chefIds[msg.sender][index] == tokenId) {
+                    matchIndex = index;
+                }
+            }
+            require(matchIndex < lenny, "This should never happen, tell the dev");
+            chefIds[msg.sender][matchIndex] = chefIds[msg.sender][lenny - 1];
+            chefIds[msg.sender].pop();
+            prevOwner[tokenId] = address(0);
+            }  
+        }
 
     function unstake(uint256 tokenId) external {
         require(prevOwner[tokenId] == msg.sender, "Not your token");
         require(block.timestamp >= unlockTime[tokenId], "Still in cooldown");
         chefs.safeTransferFrom(address(this), msg.sender, tokenId);
+        // Um yeah okay i guess
         uint256 matchIndex = type(uint256).max;
         uint256 lenny = chefIds[msg.sender].length;
         for(uint256 index = 0; index < lenny; index++) {
@@ -196,7 +220,7 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
                 matchIndex = index;
             }
         }
-        require(matchIndex < lenny, "FoodTruck: Corrupt Owner Info");
+        require(matchIndex < lenny, "This should never happen, tell the dev");
         chefIds[msg.sender][matchIndex] = chefIds[msg.sender][lenny - 1];
         chefIds[msg.sender].pop();
         prevOwner[tokenId] = address(0);
@@ -245,7 +269,7 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
         uint256 id,
         uint256 value,
         bytes calldata data
-    ) external override returns (bytes4) {
+    ) external pure override returns (bytes4) {
         return this.onERC1155Received.selector;
     }
 
@@ -255,7 +279,7 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
         uint256[] calldata ids,
         uint256[] calldata values,
         bytes calldata data
-    ) external override returns (bytes4) {
+    ) external pure override returns (bytes4) {
         return this.onERC1155BatchReceived.selector;
     }
 
@@ -264,13 +288,13 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
         address from,
         uint256 tokenId,
         bytes calldata data
-    ) external override returns (bytes4) {
+    ) external pure override returns (bytes4) {
         return this.onERC721Received.selector;
     }
-
+// A bit hacky
     function supportsInterface(bytes4 interfaceID)
         external
-        view
+        pure
         override
         returns (bool)
     {
