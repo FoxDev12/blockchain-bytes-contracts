@@ -1,6 +1,6 @@
 // This is the main NFT contract, these NFTs generate rewards through the foodtruck
 
-// @dev Fellow developper, i'm too lazy to comment my code, figure it out yourself, eventually the cryptic comments i added to help me remember what i was doing while getting this to work, if they make it into prod.  
+// @dev Fellow developper, i'm too lazy to comment my code, figure it out yourself, eventually with the help of the cryptic comments i added to help me remember what i was doing while getting this to work, if they make it into prod.  
 // SPDX-License-Identifier: MIT
 
 pragma solidity ^0.8.0;
