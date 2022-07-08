@@ -12,7 +12,7 @@ import "./deps/VRFRequestIDBase.sol";
 import "./deps/interfaces/LinkTokenInterface.sol";
 
 contract Chef is Ownable, ERC721Pausable {
-    // Tokens 1 => 9100 are humans, 9101 to 10000 are tikis
+    // Tokens 1 => 9100 are humans, 9101 to 10000 are tikis TODO No. 
     uint256 public currentSupply;
     uint256 public immutable MAX_SUPPLY = 10000;
     uint256 public mintPrice = 3 ether;
@@ -20,10 +20,21 @@ contract Chef is Ownable, ERC721Pausable {
     uint256 fee;
     uint256 maxTokens = 20;
     mapping(address => uint96) userMinted;
+    mapping (uint => bool) private _isTiki;
+    uint256 private _numTikis;
+    uint256 public immutable MAX_TIKIS = 900;
     struct Params {
         address user;
         uint96 mintQty;
     }
+    uint256[] private tikiIndex;
+    uint256[] private humanIndex;
+    bool revealed;
+    string notRevealedURI;
+    // How tho? 
+    string tikiURI;
+    string humanURI;
+    
     mapping(bytes32 => Params) mintParams;
 
     constructor() ERC721("Chef", "CHEF") {}
@@ -33,16 +44,7 @@ contract Chef is Ownable, ERC721Pausable {
     }
 
 
-    // NOTE: Will always  work with 10k tokens. Don't rely on it  for any kind of execution though
-    function getMyChefs(address who) external view returns (uint256[] memory tokenIds) {
-        tokenIds = new uint256[](balanceOf(who));
-        uint cnt;
-        for(uint256 i = 0; i < currentSupply; i++) {
-            if (ownerOf(i) == who) {
-                toks[cnt++] = i;
-            }
-        }
-    }
+
 
     function setMintPrice(uint256 price) external onlyOwner {
         mintPrice = price;
@@ -91,6 +93,14 @@ contract Chef is Ownable, ERC721Pausable {
                 rng >>= 16;
                 uint256 tokenId = (seed % MAX_SUPPLY) + 1;
                 if(!_exists(tokenId)) {
+                    // Statistically ensures that all the tikis will be minted by making the actual percentage more than 9%
+                    if(rng % 100 < 11 && _numTikis <= MAX_TIKIS) {
+                        _isTiki[tokenId] = true;
+                        tikiIndex.push(tokenId);
+                    }
+                    else {
+                        humanIndex.push(tokenId);
+                    }
                     _safeMint(to, tokenId);
                     ++currentSupply;
                     ++minted;
@@ -105,14 +115,53 @@ contract Chef is Ownable, ERC721Pausable {
         }while(minted < qty);
     }
 
-
+// NOTE TEST FOR EXEC WITH 10k TOKENS. POTENTIALLY NEED A PRIVATE NODE W UNLIMITED GAS FOR VIEW FUNCTIONS
 
     // View
     function isTiki(uint tokenId) public pure returns(bool) {
-        if(tokenId > 9100) {
-            return true;
+        require(revealed, "!reveal");
+        return(_isTiki[tokenId]);
+    }
+    function numTikis() public view returns(uint256) {
+        require(revealed, "!reveal");
+        return _numTikis;
+    }
+    
+    // NOTE: Will always  work with 10k tokens. Don't rely on it  for any kind of execution though
+    function getMyChefs(address who) external view returns (uint256[] memory tokenIds) {
+        tokenIds = new uint256[](balanceOf(who));
+        uint cnt;
+        for(uint256 i = 0; i < currentSupply; i++) {
+            if (ownerOf(i) == who) {
+                toks[cnt++] = i;
+            }
         }
-        return false;
+    }
+    // Costs a huge lot of gas
+    function tokenURI(uint256 tokenId) public view override returns(string memory) {
+        if(!revealed) {
+            return notRevealedURI;
+        }
+        else if(isTiki) {
+            uint index;
+            for(uint i; i < MAX_TIKIS; i++) {
+                if(tikiIndex[i] == tokenId) {
+                    index = i;
+                    break;
+                }
+            }
+            return(string(abi.encodePacked(tikiURI, index.toString())));
+        }
+        else {
+            uint index;
+            for(uint i; i < (MAX_SUPPLY - MAX_TIKIS); i++) {
+                if(humanIndex[i] == tokenId) {
+                    index = i;
+                    break;
+                }
+            }
+            return(string(abi.encodePacked(humanURI, tokenId.toString())));
+        }
     }
 
 
