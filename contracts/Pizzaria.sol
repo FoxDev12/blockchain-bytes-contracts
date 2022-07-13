@@ -107,8 +107,8 @@ contract Pizzaria is Ownable {
     }
 
     function stake(uint256 amount) optionalAdvance external {
-        uint256 spendable = token.allowance(msg.sender, address(this));
-        require(spendable >= amount, "Allowance insufficient");
+        // uint256 spendable = token.allowance(msg.sender, address(this));
+        // require(spendable >= amount, "Allowance insufficient");
         bool success = token.transferFrom(msg.sender, address(this), amount);
         require(success, "Staker: Token deposit reverted");
         _updateStake(msg.sender);

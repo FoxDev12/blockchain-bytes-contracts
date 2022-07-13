@@ -23,6 +23,7 @@ interface IUpgrade is IERC1155 {
 interface IDough is IERC20 {
     function mint(address receiver, uint256 amount) external;
     function burn(uint256 amount) external;
+    function burnFrom(address from, uint256 amount) external;
 }
 
 
@@ -86,80 +87,7 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
         // Not confusing at all lol
         pza = IDough(_pza);
     }   
-
-    
-    //todo: offer 1, 5, 10 (DONE)
-    function increaseChefLimit(uint256 tier) external {
-        // Unnecessary checks
-        // uint256 approv = pza.allowance(msg.sender, address(this));
-        // require( approv >= priceWalletUpgrade, "Insufficient Allowance");
-        require(tier < 2, "!tier");
-        pza.transferFrom(msg.sender, address(this), priceWalletUpgrade[tier]);
-        walletLimit[msg.sender] += walletUpgradeTier[tier];
-    }
-    // todo tiers too?
-    function reduceCollectionFee() external {
-        // uint256 approv = pza.allowance(msg.sender, address(this));
-        // require( approv >= priceCollectionUpgrade, "Insufficient Allowance");
-        pza.transferFrom(msg.sender, address(this), priceCollectionUpgrade);
-        collFeeReduce[msg.sender] += 5;
-    }
-
-
-    function _updateStake(address user) private {
-        StakeInfo storage refUser = stakeMap[user];
-        uint256 lastTime = refUser.lastUpdate;
-        uint256 totalReward = refUser.totalRate * (block.timestamp - lastTime) / 1 minutes;
-        refUser.claimable += totalReward;
-        refUser.lastUpdate = block.timestamp;
-    }
-
-    struct ChefInfo {
-        uint256 tokenId;
-        uint256 unlockTime;
-    }
-
-    function getChefs(address user) external view returns (ChefInfo[] memory) {
-        ChefInfo[] memory result = new ChefInfo[](chefIds[user].length);
-        for(uint256 index = 0; index < chefIds[user].length; index++) {
-            uint256 tokid = chefIds[user][index];
-            result[index] = ChefInfo({tokenId: tokid, unlockTime: unlockTime[tokid]});
-        }
-        return result;
-    }
-
-
-    function getCollectionFee(address user) public view returns (uint256) {
-        return 40 - collFeeReduce[user];
-    }
-
-    function getWalletLimit(address user) public view returns (uint256) {
-        return walletLimit[msg.sender] + 20;
-    }
-
-    function getReward(address user) public view returns (uint256) {
-        uint256 lastTime = stakeMap[user].lastUpdate;
-        uint256 totalReward = stakeMap[user].totalRate * (block.timestamp - lastTime) / 1 minutes;
-        return stakeMap[user].claimable + totalReward;
-    }
-
-    function getSlots(address user) public view returns (uint256) {
-        return stakeMap[user].slots;
-    }
-
-    function getUserRate(address user) public view returns (uint256) {
-        return stakeMap[user].totalRate;
-    }
-
-    function getNrItems(address user) public view returns (uint256) {
-        return stakeMap[user].nrItems;
-    }
-
-    function getItemBalance(uint256 itemId, address user) public view returns (uint256) {
-        return itemBalance[itemId][user];
-    }
-
-
+    // -------------------------------------EXTERNAL - BASIC  -------------------------------------------------
     function stake(uint256 tokenId) external {
         require(stakeMap[msg.sender].nrChefs < walletLimit[msg.sender] + 20, "!limit");
         chefs.safeTransferFrom(msg.sender, address(this), tokenId );
@@ -191,9 +119,10 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
         }
         else{
             chefs.safeTransferFrom(address(this), msg.sender, tokenId);
-            // Because no burnFrom
-            pza.transferFrom(msg.sender, address(this), earlyUnstakeFee);
-            pza.burn(earlyUnstakeFee);
+            // Implemented burnFrom for PZA and DOUGH
+            pza.burnFrom(msg.sender, earlyUnstakeFee);
+            // pza.transferFrom(msg.sender, address(this), earlyUnstakeFee);
+            // pza.burn(earlyUnstakeFee);
             uint256 matchIndex = type(uint256).max;
             uint256 lenny = chefIds[msg.sender].length;
             for(uint256 index = 0; index < lenny; index++) {
@@ -212,7 +141,6 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
         require(prevOwner[tokenId] == msg.sender, "Not your token");
         require(block.timestamp >= unlockTime[tokenId], "Still in cooldown");
         chefs.safeTransferFrom(address(this), msg.sender, tokenId);
-        // Um yeah okay i guess
         uint256 matchIndex = type(uint256).max;
         uint256 lenny = chefIds[msg.sender].length;
         for(uint256 index = 0; index < lenny; index++) {
@@ -238,6 +166,23 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
         dough.mint(msg.sender, payout);
     }
 
+    // -------------------------------------EXTERNAL - UPGRADES -------------------------------------------------
+    //DONE : offer 1, 5, 10
+    function increaseChefLimit(uint256 tier) external {
+        // Unnecessary checks
+        // uint256 approv = pza.allowance(msg.sender, address(this));
+        // require( approv >= priceWalletUpgrade, "Insufficient Allowance");
+        require(tier < 2, "!tier");
+        pza.transferFrom(msg.sender, address(this), priceWalletUpgrade[tier]);
+        walletLimit[msg.sender] += walletUpgradeTier[tier];
+    }
+    // todo tiers too?
+    function reduceCollectionFee() external {
+        // uint256 approv = pza.allowance(msg.sender, address(this));
+        // require( approv >= priceCollectionUpgrade, "Insufficient Allowance");
+        pza.transferFrom(msg.sender, address(this), priceCollectionUpgrade);
+        collFeeReduce[msg.sender] += 5;
+    }
     function equipItem(uint256 itemId) external {
         _updateStake(msg.sender);
         StakeInfo storage refUser = stakeMap[msg.sender];
@@ -262,7 +207,65 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
         
         upgrades.safeTransferFrom(address(this), msg.sender, itemId, 1, "");
     }
+    // -------------------------------------- INTERNAL ---------------------------------------
+    function _updateStake(address user) private {
+        StakeInfo storage refUser = stakeMap[user];
+        uint256 lastTime = refUser.lastUpdate;
+        uint256 totalReward = refUser.totalRate * (block.timestamp - lastTime) / 1 minutes;
+        refUser.claimable += totalReward;
+        refUser.lastUpdate = block.timestamp;
+    }
 
+
+
+    // ------------------------------------ VIEW -----------------------------------------
+    struct ChefInfo {
+        uint256 tokenId;
+        uint256 unlockTime;
+    }
+    // DONE address param instead of msg.sender in view functions
+    function getChefs(address user) external view returns (ChefInfo[] memory) {
+        ChefInfo[] memory result = new ChefInfo[](chefIds[user].length);
+        for(uint256 index = 0; index < chefIds[user].length; index++) {
+            uint256 tokid = chefIds[user][index];
+            result[index] = ChefInfo({tokenId: tokid, unlockTime: unlockTime[tokid]});
+        }
+        return result;
+    }
+
+
+    function getCollectionFee(address user) public view returns (uint256) {
+        return 40 - collFeeReduce[user];
+    }
+
+    function getWalletLimit(address user) public view returns (uint256) {
+        return walletLimit[user] + 20;
+    }
+
+    function getReward(address user) public view returns (uint256) {
+        uint256 lastTime = stakeMap[user].lastUpdate;
+        uint256 totalReward = stakeMap[user].totalRate * (block.timestamp - lastTime) / 1 minutes;
+        return stakeMap[user].claimable + totalReward;
+    }
+
+    function getSlots(address user) public view returns (uint256) {
+        return stakeMap[user].slots;
+    }
+
+    function getUserRate(address user) public view returns (uint256) {
+        return stakeMap[user].totalRate;
+    }
+
+    function getNrItems(address user) public view returns (uint256) {
+        return stakeMap[user].nrItems;
+    }
+
+    function getItemBalance(uint256 itemId, address user) public view returns (uint256) {
+        return itemBalance[itemId][user];
+    }
+
+
+    // ------------------------------------------------- SPECS REQUIREMENTS -------------------------------------------------------------------------
     function onERC1155Received(
         address operator,
         address from,

@@ -12,8 +12,18 @@ contract PZA is Ownable, ERC20 {
     address oven;
     address projectwallet;
     mapping(address => bool) taxfree;
+    mapping(address => bool) allowed;
 
-    constructor() ERC20("Pizza", "PZA") {}
+    constructor() ERC20("Pizza", "PZA") {
+        allowed[msg.sender] = true;
+    }
+    modifier onlyAllowed() { 
+        require(allowed[msg.sender], "!allowed");
+        _;
+    }
+    function setAllowed(address to, bool allow) external onlyOwner{
+        allowed[to] = allow;
+    }
 
     function setCtrs(address _oven, address _projectwallet) external onlyOwner {
         oven = _oven;
@@ -24,15 +34,20 @@ contract PZA is Ownable, ERC20 {
         taxfree[addr] = _tax;
     }
 
-    function mint(address receiver, uint256 amount) external {
-        require(msg.sender == oven, "Not allowed to mint more");
+    function mint(address receiver, uint256 amount) external onlyAllowed {
         _mint(receiver, amount);
     }
 
     function burn(uint256 amount) external {
         _burn(msg.sender, amount);
     }
-
+    function burnFrom(address from, uint256 amount) external {
+        uint current = allowance(from, msg.sender);
+        require(current >= amount, "!allowance");
+        _approve(from, msg.sender, current - amount);
+        _burn(from, amount);
+    }
+    
     function reduceTax(uint256 newtax) external onlyOwner {
         require(newtax < tax, "Can only lower token tax");
         tax = newtax;

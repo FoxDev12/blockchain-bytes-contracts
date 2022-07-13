@@ -13,26 +13,42 @@ contract DOUGH is Ownable, ERC20 {
     address projectwallet;
     mapping(address => bool) taxfree;
 
-    constructor() ERC20("Dough", "DOUGH") {}
+    mapping(address => bool) allowed;
+
+    constructor() ERC20("Dough", "DOUGH") {
+        allowed[msg.sender] = true;
+    }
 
     function setCtrs(address _foodtruck, address _projectwallet) external onlyOwner {
         foodtruck = _foodtruck;
+        allowed[foodtruck] = true;
         projectwallet = _projectwallet;
+    }
+    modifier onlyAllowed() { 
+        require(allowed[msg.sender], "!allowed");
+        _;
+    }
+    function setAllowed(address to, bool allow) external onlyOwner{
+        allowed[to] = allow;
     }
 
     function changeTaxStatus(address addr, bool _tax) external onlyOwner {
         taxfree[addr] = _tax;
     }
 
-    function mint(address receiver, uint256 amount) external {
-        require(msg.sender == foodtruck, "Not allowed to mint more");
+    function mint(address receiver, uint256 amount) external onlyAllowed {
         _mint(receiver, amount);
     }
 
     function burn(uint256 amount) external {
         _burn(msg.sender, amount);
     }
-
+    function burnFrom(address from, uint256 amount) external {
+        uint current = allowance(from, msg.sender);
+        require(current >= amount, "!allowance");
+        _approve(from, msg.sender, current - amount);
+        _burn(from, amount);
+    }
 
     function reduceTax(uint256 newtax) external onlyOwner {
         require(newtax < tax, "Can only lower token tax");

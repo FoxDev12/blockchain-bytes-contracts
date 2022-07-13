@@ -57,9 +57,11 @@ contract Chef is Ownable, ERC721Pausable {
     }
     
     function mint(uint qty) external payable {
-        require(mintPrice * qty <= msg.value, "!funds");
+        require(mintPrice * qty <= msg.value, "!value");
+        require(qty < 5, "!mintLimit");
         require(userMinted[msg.sender] + qty <= maxTokens, '!maxTokens');
         userMinted[msg.sender] += qty;
+        // For tests only
         if (chainlinkImplemented == false) {
             uint seed = weakRandomness(uint(uint160(msg.sender)));
             internalMint(qty, seed, msg.sender);
@@ -115,7 +117,9 @@ contract Chef is Ownable, ERC721Pausable {
         }while(minted < qty);
     }
 
-// NOTE TEST FOR EXEC WITH 10k TOKENS. POTENTIALLY NEED A PRIVATE NODE W UNLIMITED GAS FOR VIEW FUNCTIONS
+
+
+// NOTE TEST FOR EXEC WITH 10k TOKENS. POTENTIALLY NEED A PRIVATE NODE W UNLIMITED GAS FOR VIEW FUNCTIONS (can you do that on avalanche?)
 
     // View
     function isTiki(uint tokenId) public pure returns(bool) {
@@ -137,6 +141,7 @@ contract Chef is Ownable, ERC721Pausable {
             }
         }
     }
+    
     // Costs a huge lot of gas
     function tokenURI(uint256 tokenId) public view override returns(string memory) {
         if(!revealed) {
@@ -160,7 +165,7 @@ contract Chef is Ownable, ERC721Pausable {
                     break;
                 }
             }
-            return(string(abi.encodePacked(humanURI, tokenId.toString())));
+            return(string(abi.encodePacked(humanURI, index.toString())));
         }
     }
 
