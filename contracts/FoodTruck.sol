@@ -40,21 +40,26 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
     IDough pza;
     IUpgrade upgrades;
     address fermenter;
+    
+    // Fees
+    uint256 baseBurnFee;
+    uint256 earlyUnstakeFee;
+    uint256 baseFermenterFee;
+
 
     mapping(uint256 => mapping(address => uint256)) itemBalance;
 
     mapping(uint256 => uint256) public unlockTime;
 
     mapping(address => uint256[]) public chefIds;
-
+    uint256 baseWalletLimit;
     mapping(address => uint256) public walletLimit;     //implicit: x + 20
     mapping(address => uint256) public collFeeReduce;   //implicit: 25% - x treasury, 40% - x total
 
     uint256[] public priceWalletUpgrade = [20 ether, 20 ether, 20 ether];
     uint256[] public walletUpgradeTier = [1, 5, 10];
     uint256 public priceCollectionUpgrade = 2 ether;
-    uint256 earlyUnstakeFee;
-    uint256 constant cooldown = 1 days;
+    uint256 cooldown = 1 days;
 
     constructor(
         address _chefs,
@@ -77,23 +82,62 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
     }
 
     mapping(address => StakeInfo) public stakeMap;
-
+                                    // Compiler warnings wtf? 
+    function updateFees(uint burn, uint unstake, uint fermenter) external onlyOwner {
+        if(burn > 0) {
+            baseBurnFee = burn;
+        }
+        if(unstake > 0) {
+            earlyUnstakeFee = unstake;
+        }
+        if(fermenter > 0) {
+            baseFermenterFee = fermenter;
+        }
+    }
+    function updateOtherVars(uint limit, uint coolDown) external onlyOwner {
+        if(coolDown > 0) {
+        cooldown = coolDown;
+        }
+        if(limit > 0) {
+            baseWalletLimit = limit;
+        }
+    }
+    function updatePrices(uint256[] memory walletUpgrade, uint256 collectionUpgrade) external onlyOwner {
+        // TODO Input validation is janky af, maybe clean it up
+        bool isOk;
+        for(uint i; i < walletUpgrade.length; i++) {
+            if(walletUpgrade[i] != 0) {
+                require(walletUpgrade.length == 3, "!input");
+                if (i == 2) {
+                    isOk = true;
+                }
+            }
+        }
+        if(isOk) {
+            priceWalletUpgrade = walletUpgrade;
+        }
+        if(collectionUpgrade > 0) {
+            priceCollectionUpgrade = collectionUpgrade;
+        }
+    }
+    
 
     function setFermenter(address _fermenter) external onlyOwner {
         fermenter = _fermenter;
     } 
 
     function setPizza(address _pza) external onlyOwner {
-        // Not confusing at all lol
         pza = IDough(_pza);
     }   
     // -------------------------------------EXTERNAL - BASIC  -------------------------------------------------
+    
     function stake(uint256 tokenId) external {
         require(stakeMap[msg.sender].nrChefs < walletLimit[msg.sender] + 20, "!limit");
         chefs.safeTransferFrom(msg.sender, address(this), tokenId );
         _updateStake(msg.sender);
         StakeInfo storage refUser = stakeMap[msg.sender];
         refUser.nrChefs += 1;
+        // Gas? Test it against an if block
         refUser.totalRate += chefs.isTiki(tokenId) ? 2 ether : 1 ether;
         refUser.slots += chefs.isTiki(tokenId)? 2 : 1;
 
@@ -101,7 +145,9 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
         prevOwner[tokenId] = msg.sender;
         unlockTime[tokenId] = type(uint256).max;
     }
-    // Done : Added unstake w no cooldown
+
+
+    // Done : Added unstake w no cooldown.  TODO Tiers ? Ask
     function prepareUnstake(uint256 tokenId, bool isCooldown) external {
         require(prevOwner[tokenId] == msg.sender, "Not your token");
         uint256 deltaslots = chefs.isTiki(tokenId) ? 2 : 1;
@@ -134,12 +180,12 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
             chefIds[msg.sender][matchIndex] = chefIds[msg.sender][lenny - 1];
             chefIds[msg.sender].pop();
             prevOwner[tokenId] = address(0);
-            }  
+            }
         }
 
     function unstake(uint256 tokenId) external {
-        require(prevOwner[tokenId] == msg.sender, "Not your token");
-        require(block.timestamp >= unlockTime[tokenId], "Still in cooldown");
+        require(prevOwner[tokenId] == msg.sender, "!Owner");
+        require(block.timestamp >= unlockTime[tokenId], "cooldown");
         chefs.safeTransferFrom(address(this), msg.sender, tokenId);
         uint256 matchIndex = type(uint256).max;
         uint256 lenny = chefIds[msg.sender].length;
@@ -158,8 +204,9 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
         _updateStake(msg.sender);
         uint256 reward = stakeMap[msg.sender].claimable;
         stakeMap[msg.sender].claimable = 0;
-        uint256 feefermenter = reward * 15 / 100;
-        uint256 feeburn = reward * (25 - collFeeReduce[msg.sender]) / 100;
+        uint256 feefermenter = reward * baseFermenterFee / 100;
+        // TODO ASK
+        uint256 feeburn = reward * (baseBurnFee - collFeeReduce[msg.sender]) / 100;
         uint256 payout = reward - feefermenter - feeburn;
         // implicit burn
         dough.mint(fermenter, feefermenter);
@@ -176,19 +223,21 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
         pza.transferFrom(msg.sender, address(this), priceWalletUpgrade[tier]);
         walletLimit[msg.sender] += walletUpgradeTier[tier];
     }
-    // todo tiers too?
+    // todo tiers too? / Limit? 
     function reduceCollectionFee() external {
         // uint256 approv = pza.allowance(msg.sender, address(this));
         // require( approv >= priceCollectionUpgrade, "Insufficient Allowance");
         pza.transferFrom(msg.sender, address(this), priceCollectionUpgrade);
         collFeeReduce[msg.sender] += 5;
+        require(collFeeReduce[msg.sender] <= baseBurnFee, "underflow");
     }
+
     function equipItem(uint256 itemId) external {
         _updateStake(msg.sender);
         StakeInfo storage refUser = stakeMap[msg.sender];
         require(
             refUser.nrItems + 1 <= refUser.slots,
-            "All slots full"
+            "!slots"
         );
         refUser.nrItems += 1;
         refUser.totalRate += upgrades.getRate(itemId);
@@ -197,7 +246,7 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
     }
 
     function removeItem(uint256 itemId) external {
-        require(itemBalance[itemId][msg.sender] > 0, "Item not equipped");
+        require(itemBalance[itemId][msg.sender] > 0, "!Item");
 
         _updateStake(msg.sender);
         StakeInfo storage refUser = stakeMap[msg.sender];
@@ -235,7 +284,7 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
 
 
     function getCollectionFee(address user) public view returns (uint256) {
-        return 40 - collFeeReduce[user];
+        return baseBurnFee + baseFermenterFee - collFeeReduce[user];
     }
 
     function getWalletLimit(address user) public view returns (uint256) {
@@ -266,6 +315,7 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
 
 
     // ------------------------------------------------- SPECS REQUIREMENTS -------------------------------------------------------------------------
+
     function onERC1155Received(
         address operator,
         address from,

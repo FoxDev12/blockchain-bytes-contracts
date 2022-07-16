@@ -39,12 +39,10 @@ contract Chef is Ownable, ERC721Pausable {
 
     constructor() ERC721("Chef", "CHEF") {}
 
+
     function totalSupply() external view returns (uint256) {
         return currentSupply;
     }
-
-
-
 
     function setMintPrice(uint256 price) external onlyOwner {
         mintPrice = price;
@@ -116,6 +114,7 @@ contract Chef is Ownable, ERC721Pausable {
             }
         }while(minted < qty);
     }
+
 
 
 
