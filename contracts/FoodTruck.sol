@@ -42,10 +42,10 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
     address fermenter;
     
     // Fees
-    uint256 baseBurnFee;
+    uint256 baseWithdrawFee;
     uint256 earlyUnstakeFee;
-    uint256 baseFermenterFee;
-
+    uint256 burnPercentage;
+    uint256 fermenterPercentage;
 
     mapping(uint256 => mapping(address => uint256)) itemBalance;
 
@@ -83,15 +83,21 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
 
     mapping(address => StakeInfo) public stakeMap;
                                     // Compiler warnings wtf? 
-    function updateFees(uint burn, uint unstake, uint fermenter) external onlyOwner {
+    function updateFeePercentage(uint burn, uint fermenter) external onlyOwner {
         if(burn > 0) {
-            baseBurnFee = burn;
-        }
-        if(unstake > 0) {
-            earlyUnstakeFee = unstake;
+            burnPercentage = burn;
         }
         if(fermenter > 0) {
-            baseFermenterFee = fermenter;
+            fermenterPercentage = fermenter;
+        }
+        require(fermenterPercentage + burnPercentage == 100, "!percent");
+    }
+    function updateFees(uint earlyUnstake, uint withdraw) external onlyOwner {
+        if(earlyUnstake > 0) {
+            earlyUnstakeFee = earlyUnstake;
+        }
+        if(withdraw > 0) {
+            baseWithdrawFee = withdraw;
         }
     }
     function updateOtherVars(uint limit, uint coolDown) external onlyOwner {
@@ -199,17 +205,24 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
         chefIds[msg.sender].pop();
         prevOwner[tokenId] = address(0);
     }
-
+    function processFee(uint256 amount) internal returns(uint256 payout) {
+        uint withdrawFee = baseWithdrawFee - collFeeReduce[msg.sender];
+        uint cut = amount * withdrawFee / 100;
+        uint fermenterFee = cut * fermenterPercentage / 100;
+        dough.mint(fermenter, fermenterFee);
+        payout = amount - cut;
+    }
     function withdraw() public {
         _updateStake(msg.sender);
         uint256 reward = stakeMap[msg.sender].claimable;
         stakeMap[msg.sender].claimable = 0;
-        uint256 feefermenter = reward * baseFermenterFee / 100;
+        // uint256 feefermenter = reward * baseFermenterFee / 100;
         // TODO ASK
-        uint256 feeburn = reward * (baseBurnFee - collFeeReduce[msg.sender]) / 100;
-        uint256 payout = reward - feefermenter - feeburn;
+        // uint256 feeburn = reward * (baseBurnFee - collFeeReduce[msg.sender]) / 100;
+        // uint256 payout = reward - feefermenter - feeburn;
+        uint256 payout = processFee(reward);
         // implicit burn
-        dough.mint(fermenter, feefermenter);
+        // dough.mint(fermenter, feefermenter);
         dough.mint(msg.sender, payout);
     }
 
@@ -223,13 +236,14 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
         pza.transferFrom(msg.sender, address(this), priceWalletUpgrade[tier]);
         walletLimit[msg.sender] += walletUpgradeTier[tier];
     }
+
     // todo tiers too? / Limit? 
     function reduceCollectionFee() external {
         // uint256 approv = pza.allowance(msg.sender, address(this));
         // require( approv >= priceCollectionUpgrade, "Insufficient Allowance");
         pza.transferFrom(msg.sender, address(this), priceCollectionUpgrade);
         collFeeReduce[msg.sender] += 5;
-        require(collFeeReduce[msg.sender] <= baseBurnFee, "underflow");
+        require(collFeeReduce[msg.sender] <= baseWithdrawFee, "underflow");
     }
 
     function equipItem(uint256 itemId) external {
@@ -284,7 +298,7 @@ contract FoodTruck is Ownable, IERC721Receiver, IERC1155Receiver {
 
 
     function getCollectionFee(address user) public view returns (uint256) {
-        return baseBurnFee + baseFermenterFee - collFeeReduce[user];
+        return baseWithdrawFee - collFeeReduce[user];
     }
 
     function getWalletLimit(address user) public view returns (uint256) {
